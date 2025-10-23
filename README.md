@@ -26,8 +26,16 @@ It stores all notes in a single `shellpad.md` file and lets you view, edit, and 
 
 ## 🧩 Installation
 
+- For Mac and Linux
+
 ```bash
 pipx install shellpad
+```
+
+- For Windows
+
+```bash
+pipx install shellpad[windows]
 ```
 
 ## 🧩 Running locally
