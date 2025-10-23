@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shellpad"
+version = "1.0.0"
+description = "A minimalist notebook for your shell."
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [{name = "wormcracker"}]
+keywords = ["terminal", "notes", "markdown", "cli", "tui"]
+
+[project.scripts]
+shellpad = "shellpad.main:cli"
