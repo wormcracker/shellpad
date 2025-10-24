@@ -332,6 +332,18 @@ class Editor:
             desired_row_from_top = 0
         self.view_top = max(0, self.cy - desired_row_from_top)
 
+    def _logical_to_visual_segments(self, text: str, width: int):
+        """Return list of (segment_text, start_index_in_logical)."""
+        if text == "":
+            return [("", 0)]
+        segs = []
+        start = 0
+        while start < len(text):
+            seg = text[start:start + width]
+            segs.append((seg, start))
+            start += width
+        return segs
+
     def draw(self):
         stdscr = self.stdscr
         h, w = stdscr.getmaxyx()
@@ -341,49 +353,74 @@ class Editor:
             stdscr.addstr(0, max(0, (w - len(title)) // 2), title, curses.color_pair(self.colors.get('header', 1)) | curses.A_BOLD)
         except curses.error:
             pass
-        outer_x = 1
-        outer_y = 1
+
+        outer_x, outer_y = 1, 1
         outer_w = max(40, w - 2)
         outer_h = max(6, h - 4)
         draw_box(stdscr, outer_y, outer_x, outer_h, outer_w, "")
         text_y = outer_y + 1
         text_x = outer_x + 2
         text_h = outer_h - 2
-        text_w = outer_w - 4
-        self._ensure_view(text_h)
+        text_w = max(10, outer_w - 4)
+
+        visual = []
+        for li, ln in enumerate(self.lines):
+            segs = self._logical_to_visual_segments(ln, text_w)
+            for seg_start, seg in [(s, t) for (t, s) in segs]:
+                visual.append((li, seg_start, seg))
+
+        vis_row_for_cursor = 0
+        vis_col_for_cursor = 0
+        found = False
+        for vi, (li, seg_start, seg_text) in enumerate(visual):
+            if li == self.cy:
+                seg_len = len(seg_text)
+                if seg_start <= self.cx <= seg_start + seg_len:
+                    vis_row_for_cursor = vi
+                    vis_col_for_cursor = self.cx - seg_start
+                    found = True
+                    break
+        if not found:
+            last_vis = None
+            for vi, (li, seg_start, seg_text) in enumerate(visual):
+                if li == self.cy:
+                    last_vis = (vi, seg_start, seg_text)
+            if last_vis is not None:
+                vis_row_for_cursor = last_vis[0]
+                vis_col_for_cursor = len(last_vis[2])
+            else:
+                vis_row_for_cursor = 0
+                vis_col_for_cursor = 0
+
+        desired_row_from_top = text_h - 1
+        self.view_top = max(0, vis_row_for_cursor - desired_row_from_top)
+
         for i in range(text_h):
-            idx = self.view_top + i
-            if idx >= len(self.lines):
+            vi = self.view_top + i
+            if vi >= len(visual):
                 break
-            line = self.lines[idx]
-            visible = line[self.view_left:self.view_left + text_w]
-            col = 0
-            for m in URL_RE.finditer(visible):
-                s, e = m.start(), m.end()
-                try:
-                    if s > col:
-                        stdscr.addstr(text_y + i, text_x + col, visible[col:s])
-                    stdscr.addstr(text_y + i, text_x + s, visible[s:e], curses.color_pair(self.colors.get('link', 3)) | curses.A_UNDERLINE)
-                except curses.error:
-                    pass
-                col = e
+            li, seg_start, seg_text = visual[vi]
             try:
-                if col < len(visible):
-                    stdscr.addstr(text_y + i, text_x + col, visible[col:])
+                stdscr.addstr(text_y + i, text_x, seg_text)
             except curses.error:
                 pass
+
+        # Map visual cursor to screen coordinates, clamp into editor area
+        scr_y = text_y + (vis_row_for_cursor - self.view_top)
+        scr_x = text_x + vis_col_for_cursor
+        min_y, max_y = text_y, text_y + text_h - 1
+        min_x, max_x = text_x, text_x + text_w - 1
+        sy = min(max(min_y, scr_y), max_y)
+        sx = min(max(min_x, scr_x), max_x)
+
+        # status line
         stats = self.stats()
         try:
             stdscr.addstr(outer_y + outer_h, 0, ' ' * (w - 1))
             stdscr.addstr(outer_y + outer_h, 2, stats[:w - 4], curses.color_pair(self.colors.get('status', 2)))
         except curses.error:
             pass
-        scr_y = text_y + (self.cy - self.view_top)
-        scr_x = text_x + (self.cx - self.view_left)
-        min_y, max_y = text_y, text_y + text_h - 1
-        min_x, max_x = text_x, text_x + text_w - 1
-        sy = min(max(min_y, scr_y), max_y)
-        sx = min(max(min_x, scr_x), max_x)
+
         try:
             curses.curs_set(2)
         except curses.error:
@@ -391,7 +428,11 @@ class Editor:
         try:
             stdscr.move(sy, sx)
         except curses.error:
-            pass
+            try:
+                stdscr.move(text_y, text_x)
+            except Exception:
+                pass
+
         stdscr.refresh()
 
     def edit_loop(self):
